@@ -31,6 +31,17 @@ var ctx = context.TODO()
 
 // api
 var api *slack.Client
+
+type User struct {
+	ID          primitive.ObjectID `bson:"_id"`
+	CreatedAt   time.Time          `bson:"created_at"`
+	UpdatedAt   time.Time          `bson:"updated_at"`
+	SlackUserId string             `bson:"slack_user_id"`
+	Name        string             `bson:"name"`
+	MealsEaten  int                `bson:"meals_eaten"`
+	MealsCooked int                `bson:"meals_cooked"`
+	Points      int                `bson:"points"`
+}
 // creates the environment variables within the .env file to global constants
 func initializeEnvironmentVariables() {
 	// loads environment variables in .env to ENV
@@ -122,12 +133,63 @@ func getApp() *cli.App {
 							return nil
 						},
 					},
+					{
+						Name:  "members",
+						Usage: "Gives basic stats about all the members in the dinner rotation channel",
+						Action: func(c *cli.Context) error {
+							cliPrintUsersInTopicDinnerRotation()
+							return nil
 				},
 			},
 				},
 			},
 	sort.Sort(cli.CommandsByName(app.Commands))
 	return app
+}
+
+func cliPrintUsersInTopicDinnerRotation() {
+	// passing bson.D{{}} matches all documents in the collection
+	filter := bson.D{{}}
+	users, err := filterUsers(filter)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	for _, user := range users {
+		cliPrintUserInfo(user.SlackUserId)
+	}
+}
+
+func filterUsers(filter interface{}) ([]*User, error) {
+	var users []*User
+
+	cur, err := userCollection.Find(ctx, filter)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	for cur.Next(ctx) {
+		var u User
+		err := cur.Decode(&u)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		users = append(users, &u)
+	}
+
+	if err := cur.Err(); err != nil {
+		log.Fatal(err)
+	}
+
+	// once exhausted, close the cursor
+	cur.Close(ctx)
+
+	if len(users) == 0 {
+		return users, mongo.ErrNoDocuments
+	}
+
+	return users, nil
 }
 
 func cliPrintUserInfo(userID string) {
