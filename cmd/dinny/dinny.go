@@ -42,6 +42,15 @@ type User struct {
 	MealsCooked int                `bson:"meals_cooked"`
 	Points      int                `bson:"points"`
 }
+
+type Eating struct {
+	ID        primitive.ObjectID `bson:"_id"`
+	CreatedAt time.Time          `bson:"created_at"`
+	UpdatedAt time.Time          `bson:"updated_at"`
+	MessageID string             `bson:"message_id"`
+	ChannelID string             `bson:"channel_id"`
+}
+
 // creates the environment variables within the .env file to global constants
 func initializeEnvironmentVariables() {
 	// loads environment variables in .env to ENV
@@ -139,8 +148,8 @@ func getApp() *cli.App {
 						Action: func(c *cli.Context) error {
 							cliPrintUsersInTopicDinnerRotation()
 							return nil
-				},
-			},
+						},
+					},
 				},
 			},
 			{
@@ -152,6 +161,14 @@ func getApp() *cli.App {
 						Usage: "starts the dinner rotation semester",
 						Action: func(c *cli.Context) error {
 							cliStartDinnerRotation()
+							return nil
+						},
+					},
+					{
+						Name:  "is_eating_today",
+						Usage: "asks who is eating today",
+						Action: func(c *cli.Context) error {
+							cliIsEatingToday()
 							return nil
 						},
 					},
@@ -192,6 +209,53 @@ startDinnerRotationBlock(userID string) slack.MsgOption {
 		actionBlock,
 	)
 }
+
+func isEatingTodayBlock() slack.MsgOption {
+	// Header Section
+	headerText := slack.NewTextBlockObject("mrkdwn", "hey <!channel>, please react to this message (:thumbsup:) if you are eating tomorrow", false, false)
+	headerSection := slack.NewSectionBlock(headerText, nil, nil)
+
+	return slack.MsgOptionBlocks(
+		headerSection,
+	)
+}
+
+func cliIsEatingToday() {
+	// passing bson.D{{}} matches all documents in the collection
+	respChannel, respTimestamp, err := api.PostMessage(currentChannelID, isEatingTodayBlock())
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	var eating Eating
+	if err = eatingCollection.FindOne(ctx, bson.M{}).Decode(&eating); err != nil {
+		fmt.Printf("Nothing found\n")
+		newMessage := &Eating{
+			ID:        primitive.NewObjectID(),
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+			MessageID: respTimestamp,
+			ChannelID: respChannel,
+		}
+		_, err = eatingCollection.InsertOne(ctx, newMessage)
+		if err != nil {
+			log.Fatal(err)
+		}
+	} else {
+		fmt.Printf("FOUND SOMETHING\n")
+		_, err := eatingCollection.UpdateOne(
+			ctx,
+			bson.M{"_id": eating.ID},
+			bson.D{
+				{"$set", bson.D{{"message_id", respTimestamp}}},
+			},
+		)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+}
+
 func cliStartDinnerRotation() {
 	userIDs, _, err := api.GetUsersInConversation(&slack.GetUsersInConversationParameters{ChannelID: currentChannelID, Cursor: "", Limit: 100})
 	if err != nil {
