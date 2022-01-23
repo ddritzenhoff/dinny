@@ -143,8 +143,71 @@ func getApp() *cli.App {
 			},
 				},
 			},
+			{
+				Name:  "server",
+				Usage: "starts the dinner rotation backend",
+				Subcommands: []*cli.Command{
+					{
+						Name:  "start_semester",
+						Usage: "starts the dinner rotation semester",
+						Action: func(c *cli.Context) error {
+							cliStartDinnerRotation()
+							return nil
+						},
+					},
+				},
+			},
+		},
+	}
+
 	sort.Sort(cli.CommandsByName(app.Commands))
 	return app
+}
+
+// this creates the block used to ask user if he/she wants to join dinner rotation this semester.
+func 
+startDinnerRotationBlock(userID string) slack.MsgOption {
+
+	// Shared Assets for example
+	divSection := slack.NewDividerBlock()
+
+	// Header Section
+	headerText := slack.NewTextBlockObject("mrkdwn", "hey <@"+userID+">, would you like to join dinner rotation this semester?", false, false)
+	headerSection := slack.NewSectionBlock(headerText, nil, nil)
+
+	// div
+
+	// Join and Lurk Buttons
+	approveBtnTxt := slack.NewTextBlockObject("plain_text", "Join", false, false)
+	approveBtn := slack.NewButtonBlockElement("interaction_join_dinny", "click_me_123", approveBtnTxt).WithStyle(slack.StylePrimary)
+
+	denyBtnTxt := slack.NewTextBlockObject("plain_text", "Lurk", false, false)
+	denyBtn := slack.NewButtonBlockElement("interaction_lurk_dinny", "click_me_123", denyBtnTxt).WithStyle(slack.StyleDefault)
+
+	actionBlock := slack.NewActionBlock("", approveBtn, denyBtn)
+
+	return slack.MsgOptionBlocks(
+		headerSection,
+		divSection,
+		actionBlock,
+	)
+}
+func cliStartDinnerRotation() {
+	userIDs, _, err := api.GetUsersInConversation(&slack.GetUsersInConversationParameters{ChannelID: currentChannelID, Cursor: "", Limit: 100})
+	if err != nil {
+		fmt.Printf("%s\n", err)
+		return
+	}
+
+	for _, userID := range userIDs {
+		_, _, err := api.PostMessage(userID, startDinnerRotationBlock(userID))
+		// this is to prevent rate limiting. see https://api.slack.com/docs/rate-limits
+		time.Sleep(2 * time.Second)
+		if err != nil {
+			fmt.Printf("%s\n", err)
+			return
+		}
+	}
 }
 
 func cliPrintUsersInTopicDinnerRotation() {
