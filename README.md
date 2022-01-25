@@ -5,4 +5,4 @@ be used for testing the backend and fetching items from the slack api
 
 ## TODO (will be adding on to this too)
 
-- [ ] Dockerize 
+- [x] Dockerize
