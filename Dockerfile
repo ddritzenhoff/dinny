@@ -1,14 +1,20 @@
-FROM golang:1.17
+FROM golang:1.17 as build-env
 
 WORKDIR /go/src/app
-COPY . .
+COPY *.go .
+COPY .env .
 
-# run go list ./... to get a sense for './...'
-# it seems like it matches all of the *.go files within a module.
-# it could also be that it matches only the main packages.
+RUN go mod init
 RUN go get -d -v ./...
-RUN go install -v ./...
+RUN go vet -v
+RUN go test -v
 
-# my app would produce 'backend' and 'dinny' as executables.
-# I choose to only run the backend as dinny is more of a cli application
-CMD ["backend"]
+RUN CGO_ENABLED=0 go build -o /go/bin/app
+
+FROM gcr.io/distroless/static
+
+COPY --from=build-env /go/bin/app /
+COPY --from=build-env /go/src/app/.env /
+# port 23023 should be opened
+EXPOSE 23023
+CMD ["/app"]

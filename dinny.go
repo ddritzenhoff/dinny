@@ -1,7 +1,4 @@
-// TODO (ddritzenhoff): Figure out a way to make the user-id another primary key in addition to the default key within mongo
-// TODO (ddritzenhoff): Figure out a way to add a ping function to see if the backend is running.
-// TODO (ddritzenhoff): I'm probably doing a lot of copying of structs. Figure out a way to decrease that.
-
+// dinny provides a simple backend to manage a dinner rotation
 package main
 
 import (
@@ -59,14 +56,18 @@ func (user *User) unlikedEatingToday() {
 	user.updateMealsEaten(user.MealsEaten - 1)
 }
 
-func (user *User) updateMealsEaten(updatedMealsEaten int) {
+func (user *User) updateMealsEaten(updateMealsEaten int) {
 	// at this point, you've found the correct user from within the User collection.
+	filter := bson.D{primitive.E{Key: "_id", Value: user.ID}}
+	update := bson.D{
+    primitive.E{Key: "$set", Value: bson.D{
+        primitive.E{Key: "meals_eaten", Value: updateMealsEaten},
+    }},
+	}
 	_, err := userCollection.UpdateOne(
 		ctx,
-		bson.M{"_id": user.ID},
-		bson.D{
-			{"$set", bson.D{{"meals_eaten", updatedMealsEaten}}},
-		},
+		filter,
+		update,
 	)
 	if err != nil {
 		log.Fatal(err)
@@ -123,14 +124,13 @@ type Interaction struct {
 // this is the first function to be run right when the package is 'called' for the first time. This
 // runs before the main function.
 func init() {
-	initializeEnvironmentVariables()
+	initializeGlobalVariables()
 	initializeMongoDBConnection()
-	api = slack.New(botSigningKey, slack.OptionDebug(true))
 }
 
-// creates the environment variables within the .env file to global constants
-func initializeEnvironmentVariables() {
-	// loads environment variables in .env to ENV
+// creates the global variables within the .env file to global constants
+func initializeGlobalVariables() {
+	// loads global variables in .env to ENV
 	err := godotenv.Load()
 	if err != nil {
 		log.Fatal("Error loading .env file")
@@ -144,6 +144,7 @@ func initializeEnvironmentVariables() {
 		log.Fatal(err)
 	}
 	defaultServerTimeout = time.Duration(val)
+	api = slack.New(botSigningKey, slack.OptionDebug(true))
 }
 
 // Gets the mongodb client
@@ -188,14 +189,22 @@ func main() {
 		v1.POST("/interaction", interactionEndpoint)
 	}
 
+	router.GET("/ping", handlePing)
+
 	router.Run() // listen and serve on 0.0.0.0:8080 (for windows "localhost:8080")
+}
+
+func handlePing(c *gin.Context) {
+	c.JSON(200, gin.H{
+		"message": "pong",
+})
 }
 
 func interactionEndpoint(c *gin.Context) {
 	userData := Interaction{}
 	err := json.Unmarshal([]byte(c.PostForm("payload")), &userData)
 	if err != nil {
-		fmt.Printf("%s", err)
+		log.Fatal(err)
 	}
 
 	fmt.Printf("%+v\n", userData)
@@ -259,16 +268,11 @@ func eventsEndpoint(c *gin.Context) {
 	}
 
 	if eventsAPIEvent.Type == slackevents.CallbackEvent {
-		innerEvent := eventsAPIEvent.InnerEvent
-		// here, you are extracting the underlying type of the interface type.
-		switch innerEvent.Data.(type) {
+		switch innerEvent := eventsAPIEvent.InnerEvent.Data.(type) {
 		case *slackevents.ReactionAddedEvent:
-			// TODO (ddritzenhoff) take another look at this. I'm not sure if this is the optimal solution
-			reactionAddedEvent, _ := innerEvent.Data.(*slackevents.ReactionAddedEvent)
-			handleReactionAddedEvent(reactionAddedEvent)
+			handleReactionAddedEvent(innerEvent)
 		case *slackevents.ReactionRemovedEvent:
-			reactionRemovedEvent, _ := innerEvent.Data.(*slackevents.ReactionRemovedEvent)
-			handleReactionRemovedEvent(reactionRemovedEvent)
+			handleReactionRemovedEvent(innerEvent)
 		}
 	}
 }
@@ -291,10 +295,8 @@ func addUserToDinnerRotation(userData Interaction) error {
 
 func getEatingDocument(eventMessageID string) Eating {
 	var eating Eating
-	// Todo (ddritzenhoff) can this be done differently?
-	// the rational here was that there will only every be one document in the eating collection
-	// so you don't have to filter to find it.
-	err := eatingCollection.FindOne(ctx, bson.M{}).Decode(&eating)
+	filter := bson.D{}
+	err := eatingCollection.FindOne(ctx, filter).Decode(&eating)
 	if err != nil {
 		// this means that there isn't a document in the eating collection
 		log.Fatal(err)
@@ -306,7 +308,8 @@ func getEatingDocument(eventMessageID string) Eating {
 func getUser(slackUserID string) *User {
 	// at this point, you know that the user liked the correct message
 	var user User
-	err := userCollection.FindOne(ctx, bson.M{"slack_user_id": slackUserID}).Decode(&user)
+	filter := bson.D{{Key: "slack_user_id", Value: slackUserID}}
+	err := userCollection.FindOne(ctx, filter).Decode(&user)
 	if err != nil {
 		log.Fatal(err)
 	}
