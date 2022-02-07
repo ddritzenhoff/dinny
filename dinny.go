@@ -60,9 +60,9 @@ func (user *User) updateMealsEaten(updateMealsEaten int) {
 	// at this point, you've found the correct user from within the User collection.
 	filter := bson.D{primitive.E{Key: "_id", Value: user.ID}}
 	update := bson.D{
-    primitive.E{Key: "$set", Value: bson.D{
-        primitive.E{Key: "meals_eaten", Value: updateMealsEaten},
-    }},
+		primitive.E{Key: "$set", Value: bson.D{
+			primitive.E{Key: "meals_eaten", Value: updateMealsEaten},
+		}},
 	}
 	_, err := userCollection.UpdateOne(
 		ctx,
@@ -186,7 +186,6 @@ func main() {
 	v1 := router.Group("/v1")
 	{
 		v1.POST("/event", eventsEndpoint)
-		v1.POST("/interaction", interactionEndpoint)
 	}
 
 	router.GET("/ping", handlePing)
@@ -197,35 +196,7 @@ func main() {
 func handlePing(c *gin.Context) {
 	c.JSON(200, gin.H{
 		"message": "pong",
-})
-}
-
-func interactionEndpoint(c *gin.Context) {
-	userData := Interaction{}
-	err := json.Unmarshal([]byte(c.PostForm("payload")), &userData)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	fmt.Printf("%+v\n", userData)
-
-	if len(userData.Actions) <= 0 {
-		fmt.Printf("No actions recorded")
-		return
-	}
-
-	// at this point, you know that the number of actions are greater than 0
-	if userData.Actions[0].ActionID == "interaction_join_dinny" {
-		err := addUserToDinnerRotation(userData.User.ID)
-		if err != nil {
-			log.Fatal(err)
-		}
-		acknowledgeDecision(&userData)
-	} else if userData.Actions[0].ActionID == "interaction_lurk_dinny" {
-		acknowledgeDecision(&userData)
-	}
-
-	c.String(http.StatusOK, "")
+	})
 }
 
 func eventsEndpoint(c *gin.Context) {
@@ -300,7 +271,7 @@ func addUserToDinnerRotation(slackUserID string) error {
 
 func getEatingDocument(eventMessageID string) (Eating, error) {
 	var eating Eating
-	filter := bson.D{{Key: "message_id", Value:eventMessageID}}
+	filter := bson.D{{Key: "message_id", Value: eventMessageID}}
 	err := eatingCollection.FindOne(ctx, filter).Decode(&eating)
 	if err != nil {
 		// this means that there isn't a document in the eating collection
@@ -379,11 +350,4 @@ func handleReactionAddedEvent(reactionEvent *slackevents.ReactionAddedEvent) {
 
 func isDesiredReaction(eventReaction string, desiredReaction string) bool {
 	return eventReaction == desiredReaction
-}
-
-func acknowledgeDecision(userData *Interaction) {
-	_, _, err := api.PostMessage(userData.User.ID, slack.MsgOptionReplaceOriginal(userData.ResponseUrl), slack.MsgOptionText("Recorded, Thanks!", false))
-	if err != nil {
-		log.Fatal(err)
-	}
 }
