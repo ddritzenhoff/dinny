@@ -216,7 +216,7 @@ func interactionEndpoint(c *gin.Context) {
 
 	// at this point, you know that the number of actions are greater than 0
 	if userData.Actions[0].ActionID == "interaction_join_dinny" {
-		err := addUserToDinnerRotation(userData)
+		err := addUserToDinnerRotation(userData.User.ID)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -277,70 +277,104 @@ func eventsEndpoint(c *gin.Context) {
 	}
 }
 
-func addUserToDinnerRotation(userData Interaction) error {
+func addUserToDinnerRotation(slackUserID string) error {
+	slackUser, err := api.GetUserInfo(slackUserID)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	newUser := &User{
 		ID:          primitive.NewObjectID(),
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
-		SlackUserId: userData.User.ID,
-		Name:        userData.User.Name,
+		SlackUserId: slackUser.ID,
+		Name:        slackUser.Name,
 		MealsEaten:  0,
 		MealsCooked: 0,
 		Points:      0,
 	}
 
-	_, err := userCollection.InsertOne(ctx, newUser)
+	_, err = userCollection.InsertOne(ctx, newUser)
 	return err
 }
 
-func getEatingDocument(eventMessageID string) Eating {
+func getEatingDocument(eventMessageID string) (Eating, error) {
 	var eating Eating
-	filter := bson.D{}
+	filter := bson.D{{Key: "message_id", Value:eventMessageID}}
 	err := eatingCollection.FindOne(ctx, filter).Decode(&eating)
 	if err != nil {
 		// this means that there isn't a document in the eating collection
-		log.Fatal(err)
+		return eating, err
 	}
 
-	return eating
+	return eating, nil
 }
 
-func getUser(slackUserID string) *User {
-	// at this point, you know that the user liked the correct message
+func getUser(slackUserID string) (*User, error) {
 	var user User
 	filter := bson.D{{Key: "slack_user_id", Value: slackUserID}}
 	err := userCollection.FindOne(ctx, filter).Decode(&user)
 	if err != nil {
-		log.Fatal(err)
+		if err == mongo.ErrNoDocuments {
+			err = addUserToDinnerRotation(slackUserID)
+			if err != nil {
+				fmt.Printf("unable to add %s to dinner rotation\n", slackUserID)
+				return nil, err
+			}
+			return getUser(slackUserID)
+		} else {
+			log.Fatal(err)
+		}
 	}
-
-	return &user
+	return &user, nil
 }
 
 // Remove 1 from the meals eaten if the correct 'will you eat today' message like is un-liked
 func handleReactionRemovedEvent(reactionEvent *slackevents.ReactionRemovedEvent) {
 	eventMessageID := reactionEvent.Item.Timestamp
-	eating := getEatingDocument(eventMessageID)
+	eating, err := getEatingDocument(eventMessageID)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			fmt.Println("Couldn't find the eating document. Either it doesn't exist, or a separate message had a reaction")
+			return
+		}
+		log.Fatal(err)
+	}
 	if !eating.isCorrectMessageID(eventMessageID) || isDesiredReaction(reactionEvent.Reaction, "+1") {
 		return
 	}
 
 	// at this point, you know that the user liked the correct message
 	// at this point, you've found the correct user from within the User collection.
-	getUser(reactionEvent.User).unlikedEatingToday()
+	user, err := getUser(reactionEvent.User)
+	if err != nil {
+		log.Fatal(err)
+	}
+	user.unlikedEatingToday()
 }
 
 // Add 1 to the meals eaten if the correct 'will you eat today' message is liked
 func handleReactionAddedEvent(reactionEvent *slackevents.ReactionAddedEvent) {
 	eventMessageID := reactionEvent.Item.Timestamp
-	eating := getEatingDocument(eventMessageID)
+	eating, err := getEatingDocument(eventMessageID)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			fmt.Println("Couldn't find the eating document. Either it doesn't exist, or a separate message had a reaction")
+			return
+		}
+		log.Fatal(err)
+	}
 	if !eating.isCorrectMessageID(eventMessageID) || isDesiredReaction(reactionEvent.Reaction, "+1") {
 		return
 	}
 
 	// at this point, you know that the user liked the correct message
 	// at this point, you've found the correct user from within the User collection.
-	getUser(reactionEvent.User).likedEatingToday()
+	user, err := getUser(reactionEvent.User)
+	if err != nil {
+		log.Fatal(err)
+	}
+	user.likedEatingToday()
 }
 
 func isDesiredReaction(eventReaction string, desiredReaction string) bool {
