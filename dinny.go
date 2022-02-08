@@ -56,12 +56,12 @@ func (user *User) unlikedEatingToday() {
 	user.updateMealsEaten(user.MealsEaten - 1)
 }
 
-func (user *User) updateMealsEaten(updateMealsEaten int) {
+func (user *User) updateMealsEaten(newMealsEatenValue int) {
 	// at this point, you've found the correct user from within the User collection.
 	filter := bson.D{primitive.E{Key: "_id", Value: user.ID}}
 	update := bson.D{
 		primitive.E{Key: "$set", Value: bson.D{
-			primitive.E{Key: "meals_eaten", Value: updateMealsEaten},
+			primitive.E{Key: "meals_eaten", Value: newMealsEatenValue},
 		}},
 	}
 	_, err := userCollection.UpdateOne(
@@ -303,6 +303,7 @@ func getUser(slackUserID string) (*User, error) {
 // Remove 1 from the meals eaten if the correct 'will you eat today' message like is un-liked
 func handleReactionRemovedEvent(reactionEvent *slackevents.ReactionRemovedEvent) {
 	eventMessageID := reactionEvent.Item.Timestamp
+	fmt.Printf("handleReactionRemovedEvent with event message ID %s\n", eventMessageID)
 	eating, err := getEatingDocument(eventMessageID)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
@@ -311,7 +312,7 @@ func handleReactionRemovedEvent(reactionEvent *slackevents.ReactionRemovedEvent)
 		}
 		log.Fatal(err)
 	}
-	if !eating.isCorrectMessageID(eventMessageID) || isDesiredReaction(reactionEvent.Reaction, "+1") {
+	if !eating.isCorrectMessageID(eventMessageID) || !isDesiredReaction(reactionEvent.Reaction, "+1") {
 		return
 	}
 
@@ -327,6 +328,7 @@ func handleReactionRemovedEvent(reactionEvent *slackevents.ReactionRemovedEvent)
 // Add 1 to the meals eaten if the correct 'will you eat today' message is liked
 func handleReactionAddedEvent(reactionEvent *slackevents.ReactionAddedEvent) {
 	eventMessageID := reactionEvent.Item.Timestamp
+	fmt.Printf("handleReactionAddedEvent with event message ID %s\n", eventMessageID)
 	eating, err := getEatingDocument(eventMessageID)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
@@ -335,7 +337,7 @@ func handleReactionAddedEvent(reactionEvent *slackevents.ReactionAddedEvent) {
 		}
 		log.Fatal(err)
 	}
-	if !eating.isCorrectMessageID(eventMessageID) || isDesiredReaction(reactionEvent.Reaction, "+1") {
+	if !eating.isCorrectMessageID(eventMessageID) || !isDesiredReaction(reactionEvent.Reaction, "+1") {
 		return
 	}
 
